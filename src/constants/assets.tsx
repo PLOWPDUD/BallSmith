@@ -24,6 +24,7 @@ export const SHAPES: Shape[] = [
 export interface EyeSet {
   id: string;
   name: string;
+  customUrl?: string;
   render: (color: string) => React.ReactNode;
 }
 
@@ -70,8 +71,8 @@ export const EYES: EyeSet[] = [
     name: 'Wot',
     render: (c) => (
       <g>
-        <circle cx="30" cy="48" r="8" fill="white" stroke={c} strokeWidth="3.5" />
-        <circle cx="70" cy="48" r="8" fill="white" stroke={c} strokeWidth="3.5" />
+        <ellipse cx="30" cy="48" rx="12" ry="9" fill="white" stroke={c} strokeWidth="3.5" />
+        <ellipse cx="70" cy="48" rx="12" ry="9" fill="white" stroke={c} strokeWidth="3.5" />
       </g>
     )
   },

@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Globe,
   Sparkles,
+  Wand2,
   Info,
   FlipHorizontal,
   FlipVertical,
@@ -32,7 +33,10 @@ import {
 import { toPng } from 'html-to-image';
 import confetti from 'canvas-confetti';
 import { Countryball } from './components/Countryball';
-import { SHAPES, Shape, EYES, ACCESSORIES, COUNTRIES, HISTORICAL_COUNTRIES } from './constants/assets';
+import { Tooltip } from './components/Tooltip';
+import { Tutorial } from './components/Tutorial';
+import { EyeEditor } from './components/EyeEditor';
+import { SHAPES, Shape, EYES, EyeSet, ACCESSORIES, COUNTRIES, HISTORICAL_COUNTRIES } from './constants/assets';
 import { moderateImage } from './services/moderationService';
 
 type Tab = 'flag' | 'eyes' | 'accessories' | 'adjust' | 'shape' | 'saved';
@@ -70,6 +74,7 @@ export default function App() {
   const [useFlag, setUseFlag] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('flag');
   const [flagMode, setFlagMode] = useState<FlagMode>('modern');
+  const [eyeMode, setEyeMode] = useState<'preset' | 'custom'>('preset');
   const [shape, setShape] = useState<Shape>(SHAPES[0]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isExporting, setIsExporting] = useState(false);
@@ -82,6 +87,11 @@ export default function App() {
   const [savedDesigns, setSavedDesigns] = useState<SavedDesign[]>([]);
   const [isSavingDesign, setIsSavingDesign] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const eyeFileInputRef = useRef<HTMLInputElement>(null);
+  const [customEyeUrl, setCustomEyeUrl] = useState('');
+  const [savedEyes, setSavedEyes] = useState<EyeSet[]>([]);
+  const [isModeratingEyes, setIsModeratingEyes] = useState(false);
+  const [editingEyeSource, setEditingEyeSource] = useState<string | null>(null);
 
   const ballRef = useRef<HTMLDivElement>(null);
 
@@ -219,6 +229,15 @@ export default function App() {
         console.error("Failed to load saved designs", e);
       }
     }
+
+    const storedEyes = localStorage.getItem('ballsmith_saved_eyes');
+    if (storedEyes) {
+      try {
+        setSavedEyes(JSON.parse(storedEyes));
+      } catch (e) {
+        console.error("Failed to load saved eyes", e);
+      }
+    }
   }, []);
 
   const saveFlagLocally = (newFlag: any) => {
@@ -285,6 +304,88 @@ export default function App() {
     const updated = savedDesigns.filter(d => d.id !== id);
     setSavedDesigns(updated);
     localStorage.setItem('ballsmith_saved_designs', JSON.stringify(updated));
+  };
+
+  const handleCustomEyeImport = async (dataUrl: string, mimeType: string = 'image/png') => {
+    setIsModeratingEyes(true);
+    setModerationError(null);
+    
+    try {
+      let processUrl = dataUrl;
+      let processMime = mimeType;
+
+      if (mimeType === 'image/svg+xml') {
+        processUrl = await new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width || 512;
+            canvas.height = img.height || 512;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return reject('Failed to get context');
+            ctx.drawImage(img, 0, 0);
+            resolve(canvas.toDataURL('image/png'));
+          };
+          img.onerror = () => reject('Failed to load SVG for conversion');
+          img.src = dataUrl;
+        });
+        processMime = 'image/png';
+      }
+
+      const base64Data = processUrl.split(',')[1];
+      const result = await moderateImage(base64Data, processMime);
+      
+      if (result.safe) {
+        const customEye: EyeSet = {
+          id: 'custom-eye-' + Date.now(),
+          name: 'Custom Eyes',
+          customUrl: dataUrl,
+          render: () => <g /> // Not used for customUrl
+        };
+        setEyes(customEye);
+        const updated = [customEye, ...savedEyes.filter(e => e.customUrl !== customEye.customUrl)].slice(0, 20);
+        setSavedEyes(updated);
+        localStorage.setItem('ballsmith_saved_eyes', JSON.stringify(updated));
+        setCustomEyeUrl('');
+        confetti({
+          particleCount: 30,
+          spread: 40,
+          origin: { y: 0.8 },
+          colors: ['#a855f7']
+        });
+      } else {
+        setModerationError(result.reason);
+      }
+    } catch (err) {
+      console.error(err);
+      setModerationError("Failed to analyze eyes. Please try another image.");
+    } finally {
+      setIsModeratingEyes(false);
+    }
+  };
+
+  const handleUrlEyeImport = async () => {
+    if (!customEyeUrl) return;
+    setIsModeratingEyes(true);
+    setModerationError(null);
+    try {
+      const response = await fetch(customEyeUrl);
+      const blob = await response.blob();
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        handleCustomEyeImport(reader.result as string, blob.type);
+      };
+      reader.readAsDataURL(blob);
+    } catch (err) {
+      setModerationError("Cannot access eye URL. Try uploading it instead.");
+      setIsModeratingEyes(false);
+    }
+  };
+
+  const deleteSavedEye = (id: string) => {
+    const updated = savedEyes.filter(e => e.id !== id);
+    setSavedEyes(updated);
+    localStorage.setItem('ballsmith_saved_eyes', JSON.stringify(updated));
   };
 
   const handleCustomImport = async (dataUrl: string, mimeType: string = 'image/png') => {
@@ -384,6 +485,18 @@ export default function App() {
     e.target.value = '';
   };
 
+  const handleEyeFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      handleCustomEyeImport(reader.result as string, file.type);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
   const handleRandomize = () => {
     const randomCountry = COUNTRIES[Math.floor(Math.random() * COUNTRIES.length)];
     const randomEyes = EYES[Math.floor(Math.random() * EYES.length)];
@@ -476,60 +589,68 @@ export default function App() {
 
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1 bg-white/5 p-1 rounded-lg border border-white/10 mr-2">
-            <button 
-              onClick={undo}
-              disabled={historyIndex <= 0}
-              className="p-1.5 rounded hover:bg-white/10 text-slate-400 disabled:opacity-30 disabled:hover:bg-transparent transition-all active:scale-90"
-              title="Undo (Ctrl+Z)"
-            >
-              <Undo className="w-4 h-4" />
-            </button>
-            <button 
-              onClick={redo}
-              disabled={historyIndex >= history.length - 1}
-              className="p-1.5 rounded hover:bg-white/10 text-slate-400 disabled:opacity-30 disabled:hover:bg-transparent transition-all active:scale-90"
-              title="Redo (Ctrl+Y)"
-            >
-              <Redo className="w-4 h-4" />
-            </button>
+            <Tooltip content="Undo change (Ctrl+Z)" position="bottom">
+              <button 
+                onClick={undo}
+                disabled={historyIndex <= 0}
+                className="p-1.5 rounded hover:bg-white/10 text-slate-400 disabled:opacity-30 disabled:hover:bg-transparent transition-all active:scale-90"
+              >
+                <Undo className="w-4 h-4" />
+              </button>
+            </Tooltip>
+            <Tooltip content="Redo change (Ctrl+Y)" position="bottom">
+              <button 
+                onClick={redo}
+                disabled={historyIndex >= history.length - 1}
+                className="p-1.5 rounded hover:bg-white/10 text-slate-400 disabled:opacity-30 disabled:hover:bg-transparent transition-all active:scale-90"
+              >
+                <Redo className="w-4 h-4" />
+              </button>
+            </Tooltip>
           </div>
-          <button 
-            onClick={handleSaveDesign}
-            disabled={isSavingDesign}
-            className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-600/20 border border-blue-500/30 text-blue-400 text-[10px] font-bold uppercase tracking-wider hover:bg-blue-600/30 transition-all active:scale-95 disabled:opacity-50 font-sans"
-          >
-            <Bookmark className={`w-3.5 h-3.5 ${isSavingDesign ? 'animate-pulse' : ''}`} />
-            {isSavingDesign ? 'Saving' : 'Save Design'}
-          </button>
-          <button 
-            onClick={() => {
-              setCountry(COUNTRIES[0]);
-              setEyes(EYES[0]);
-              setAccessory(ACCESSORIES[0]);
-              setAccessory2(ACCESSORIES[0]);
-              setEyesOffset({ x: 0, y: 5, scale: 1, rotation: 0 });
-              setHatOffset({ x: 0, y: 0, scale: 1, rotation: 0 });
-              setHat2Offset({ x: 0, y: 0, scale: 1, rotation: 0 });
-              setBallRotation(0);
-              setBallRotationX(0);
-              setBallRotationY(0);
-              setFlipX(false);
-              setFlipY(false);
-              setBallColor('#ffffff');
-              setUseFlag(true);
-            }}
-            className="px-4 py-1.5 rounded bg-white/5 border border-white/10 text-xs font-bold uppercase tracking-wider hover:bg-white/10 transition-all active:scale-95"
-          >
-            Reset
-          </button>
-          <button 
-            onClick={handleExport}
-            disabled={isExporting}
-            className="flex items-center gap-2 px-5 py-2 rounded bg-amber-600 text-white text-xs font-bold uppercase tracking-wider hover:bg-amber-700 transition-all active:scale-95 disabled:opacity-50 shadow-lg shadow-amber-900/20"
-          >
-            <Download className="w-4 h-4" />
-            {isExporting ? 'Exporting...' : 'Export Character'}
-          </button>
+          <Tooltip content="Save current design to Gallery" position="bottom">
+            <button 
+              onClick={handleSaveDesign}
+              disabled={isSavingDesign}
+              className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-600/20 border border-blue-500/30 text-blue-400 text-[10px] font-bold uppercase tracking-wider hover:bg-blue-600/30 transition-all active:scale-95 disabled:opacity-50 font-sans"
+            >
+              <Bookmark className={`w-3.5 h-3.5 ${isSavingDesign ? 'animate-pulse' : ''}`} />
+              {isSavingDesign ? 'Saving' : 'Save Design'}
+            </button>
+          </Tooltip>
+          <Tooltip content="Reset all changes" position="bottom">
+            <button 
+              onClick={() => {
+                setCountry(COUNTRIES[0]);
+                setEyes(EYES[0]);
+                setAccessory(ACCESSORIES[0]);
+                setAccessory2(ACCESSORIES[0]);
+                setEyesOffset({ x: 0, y: 5, scale: 1, rotation: 0 });
+                setHatOffset({ x: 0, y: 0, scale: 1, rotation: 0 });
+                setHat2Offset({ x: 0, y: 0, scale: 1, rotation: 0 });
+                setBallRotation(0);
+                setBallRotationX(0);
+                setBallRotationY(0);
+                setFlipX(false);
+                setFlipY(false);
+                setBallColor('#ffffff');
+                setUseFlag(true);
+              }}
+              className="px-4 py-1.5 rounded bg-white/5 border border-white/10 text-xs font-bold uppercase tracking-wider hover:bg-white/10 transition-all active:scale-95"
+            >
+              Reset
+            </button>
+          </Tooltip>
+          <Tooltip content="Export character as PNG" position="bottom">
+            <button 
+              onClick={handleExport}
+              disabled={isExporting}
+              className="flex items-center gap-2 px-5 py-2 rounded bg-amber-600 text-white text-xs font-bold uppercase tracking-wider hover:bg-amber-700 transition-all active:scale-95 disabled:opacity-50 shadow-lg shadow-amber-900/20"
+            >
+              <Download className="w-4 h-4" />
+              {isExporting ? 'Exporting...' : 'Export Character'}
+            </button>
+          </Tooltip>
         </div>
       </header>
 
@@ -541,45 +662,52 @@ export default function App() {
             onClick={() => setActiveTab('flag')} 
             icon={<Globe className="w-5 h-5" />} 
             label="Flags" 
+            tooltip="Choose your nation's flag"
           />
           <SidebarButton 
             active={activeTab === 'eyes'} 
             onClick={() => setActiveTab('eyes')} 
             icon={<EyeIcon className="w-5 h-5" />} 
             label="Eyes" 
+            tooltip="Select character expression"
           />
           <SidebarButton 
             active={activeTab === 'accessories'} 
             onClick={() => setActiveTab('accessories')} 
             icon={<PlusCircle className="w-5 h-5" />} 
             label="Hats" 
+            tooltip="Add hats and accessories"
           />
           <SidebarButton 
             active={activeTab === 'shape'} 
             onClick={() => setActiveTab('shape')} 
             icon={<Globe className="w-5 h-5" />} 
             label="Shape" 
+            tooltip="Change ball silhouette"
           />
           <SidebarButton 
             active={activeTab === 'saved'} 
             onClick={() => setActiveTab('saved')} 
             icon={<Bookmark className="w-5 h-5" />} 
             label="Gallery" 
+            tooltip="View your saved designs"
           />
           <SidebarButton 
             active={activeTab === 'adjust'} 
             onClick={() => setActiveTab('adjust')} 
             icon={<Palette className="w-5 h-5" />} 
             label="Adjust" 
+            tooltip="Fine-tune position and pose"
           />
           <div className="mt-auto pb-4">
-             <button 
-              onClick={handleRandomize}
-              className="p-3 text-slate-500 hover:text-amber-500 transition-colors"
-              title="Randomize"
-            >
-              <RefreshCcw className="w-5 h-5" />
-            </button>
+             <Tooltip content="Randomize design" position="right">
+               <button 
+                onClick={handleRandomize}
+                className="p-3 text-slate-500 hover:text-amber-500 transition-colors"
+              >
+                <RefreshCcw className="w-5 h-5" />
+              </button>
+             </Tooltip>
           </div>
         </nav>
 
@@ -722,15 +850,17 @@ export default function App() {
                               {new Date(d.timestamp).toLocaleDateString()}
                             </span>
                           </button>
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteSavedDesign(d.id);
-                            }}
-                            className="absolute -top-1 -right-1 w-5 h-5 bg-red-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-700 shadow-lg z-10"
-                          >
-                            <Trash2 className="w-3 h-3 text-white" />
-                          </button>
+                          <Tooltip content="Delete design" position="top">
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteSavedDesign(d.id);
+                              }}
+                              className="absolute -top-1 -right-1 w-5 h-5 bg-red-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-700 shadow-lg z-10"
+                            >
+                              <Trash2 className="w-3 h-3 text-white" />
+                            </button>
+                          </Tooltip>
                         </div>
                       ))}
                     </div>
@@ -795,6 +925,7 @@ export default function App() {
                             className="w-full bg-black/40 border border-white/10 rounded-lg py-2 pl-8 pr-3 text-[10px] text-white placeholder:text-slate-600 focus:outline-none focus:border-amber-500/50 transition-all"
                           />
                         </div>
+                      <Tooltip content="Import from image URL" position="left">
                         <button 
                           onClick={handleUrlImport}
                           disabled={isModerating || !customFlagUrl}
@@ -802,6 +933,7 @@ export default function App() {
                         >
                           {isModerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
                         </button>
+                      </Tooltip>
                       </div>
 
                       <div className="flex items-center gap-2">
@@ -810,23 +942,25 @@ export default function App() {
                         <div className="h-px flex-1 bg-white/5"></div>
                       </div>
 
-                      <button 
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={isModerating}
-                        className="w-full bg-white/5 border border-white/10 hover:bg-white/10 transition-all rounded-lg py-2 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-300 active:scale-[0.98] disabled:opacity-50"
-                      >
-                        {isModerating ? (
-                          <>
-                            <Loader2 className="w-3 h-3 animate-spin text-amber-500" />
-                            <span>Moderating Image...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Upload className="w-3 h-3 text-amber-500" />
-                            <span>Upload from Gallery</span>
-                          </>
-                        )}
-                      </button>
+                      <Tooltip content="Upload local image file" position="top">
+                        <button 
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={isModerating}
+                          className="w-full bg-white/5 border border-white/10 hover:bg-white/10 transition-all rounded-lg py-2 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-300 active:scale-[0.98] disabled:opacity-50"
+                        >
+                          {isModerating ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin text-amber-500" />
+                              <span>Moderating Image...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="w-3 h-3 text-amber-500" />
+                              <span>Upload from Gallery</span>
+                            </>
+                          )}
+                        </button>
+                      </Tooltip>
                       
                       <input 
                         type="file" 
@@ -848,12 +982,14 @@ export default function App() {
                       className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-9 pr-10 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-amber-500/50 transition-all"
                     />
                     {searchQuery && (
-                      <button 
-                        onClick={() => setSearchQuery('')}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+                      <Tooltip content="Clear search" position="left">
+                        <button 
+                          onClick={() => setSearchQuery('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </Tooltip>
                     )}
                   </div>
 
@@ -996,24 +1132,168 @@ export default function App() {
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
-                  className="grid grid-cols-2 gap-3"
+                  className="space-y-4"
                 >
-                  {EYES.map((e) => (
-                    <button
-                      key={e.id}
-                      onClick={() => setEyes(e)}
-                      className={`aspect-square rounded-lg flex flex-col items-center justify-center gap-3 transition-all p-4 border-2 ${
-                        eyes.id === e.id 
-                          ? 'border-amber-500 bg-white/10' 
-                          : 'border-transparent bg-white/5 hover:bg-white/10'
-                      }`}
+                  <div className="flex gap-2 mb-2">
+                    <button 
+                      onClick={() => setEyeMode('preset')}
+                      className={`flex-1 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all border ${eyeMode === 'preset' ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white/5 border-white/10 text-slate-500'}`}
                     >
-                      <svg viewBox="0 0 100 80" className="w-12 h-auto opacity-80 group-hover:opacity-100">
-                        {e.render('white')}
-                      </svg>
-                      <span className="text-[10px] font-bold uppercase tracking-tighter text-slate-400">{e.name}</span>
+                      Presets
                     </button>
-                  ))}
+                    <button 
+                      onClick={() => setEyeMode('custom')}
+                      className={`flex-1 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all border ${eyeMode === 'custom' ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white/5 border-white/10 text-slate-500'}`}
+                    >
+                      Import
+                    </button>
+                  </div>
+
+                  {eyeMode === 'preset' ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      {EYES.map((e) => (
+                        <button
+                          key={e.id}
+                          onClick={() => setEyes(e)}
+                          className={`aspect-square rounded-lg flex flex-col items-center justify-center gap-3 transition-all p-4 border-2 ${
+                            eyes.id === e.id 
+                              ? 'border-amber-500 bg-white/10' 
+                              : 'border-transparent bg-white/5 hover:bg-white/10'
+                          }`}
+                        >
+                          <svg viewBox="0 0 100 80" className="w-12 h-auto opacity-80 group-hover:opacity-100">
+                            {e.render('white')}
+                          </svg>
+                          <span className="text-[10px] font-bold uppercase tracking-tighter text-slate-400">{e.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="space-y-3 p-3 bg-white/5 border border-white/10 rounded-xl">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Sparkles className="w-3 h-3 text-purple-500" />
+                          <h3 className="text-[10px] font-black uppercase tracking-widest text-white">Import Custom Eyes</h3>
+                        </div>
+                        
+                        <div className="flex gap-2">
+                          <div className="relative flex-1">
+                            <LinkIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                            <input 
+                              type="text" 
+                              placeholder="Paste eye image URL..."
+                              value={customEyeUrl}
+                              onChange={(e) => setCustomEyeUrl(e.target.value)}
+                              className="w-full bg-black/40 border border-white/10 rounded-lg py-2 pl-8 pr-3 text-[10px] text-white placeholder:text-slate-600 focus:outline-none focus:border-amber-500/50 transition-all"
+                            />
+                          </div>
+                          <Tooltip content="Import eyes from URL" position="left">
+                            <button 
+                              onClick={handleUrlEyeImport}
+                              disabled={isModeratingEyes || !customEyeUrl}
+                              className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white p-2 rounded-lg transition-all active:scale-95 flex items-center justify-center min-w-[36px]"
+                            >
+                              {isModeratingEyes ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
+                            </button>
+                          </Tooltip>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <div className="h-px flex-1 bg-white/5"></div>
+                          <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest leading-none">OR</span>
+                          <div className="h-px flex-1 bg-white/5"></div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <Tooltip content="Upload eye image file" position="top">
+                            <button 
+                              onClick={() => eyeFileInputRef.current?.click()}
+                              disabled={isModeratingEyes}
+                              className="w-full bg-white/5 border border-white/10 hover:bg-white/10 transition-all rounded-lg py-2 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-300 active:scale-[0.98] disabled:opacity-50"
+                            >
+                              {isModeratingEyes ? (
+                                <>
+                                  <Loader2 className="w-3 h-3 animate-spin text-purple-500" />
+                                  <span>...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Upload className="w-3 h-3 text-purple-500" />
+                                  <span>Upload</span>
+                                </>
+                              )}
+                            </button>
+                          </Tooltip>
+
+                          <Tooltip content="Clean background from current" position="top">
+                            <button 
+                              onClick={() => {
+                                if (eyes.customUrl) {
+                                  setEditingEyeSource(eyes.customUrl);
+                                } else {
+                                  eyeFileInputRef.current?.click();
+                                }
+                              }}
+                              className="w-full bg-purple-600/10 border border-purple-500/30 hover:bg-purple-600/20 transition-all rounded-lg py-2 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-wider text-purple-400 active:scale-[0.98]"
+                            >
+                              <Wand2 className="w-3 h-3" />
+                              <span>Wand Editor</span>
+                            </button>
+                          </Tooltip>
+                        </div>
+                        
+                        <input 
+                          type="file" 
+                          ref={eyeFileInputRef} 
+                          onChange={handleEyeFileChange} 
+                          accept="image/*" 
+                          className="hidden" 
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        {savedEyes.map((e) => (
+                          <div key={e.id} className="relative group">
+                            <button
+                              onClick={() => setEyes(e)}
+                              className={`w-full aspect-square rounded-lg flex flex-col items-center justify-center gap-2 transition-all p-3 border-2 ${
+                                eyes.id === e.id 
+                                  ? 'border-amber-500 bg-white/10' 
+                                  : 'border-transparent bg-white/5 hover:bg-white/10'
+                              }`}
+                            >
+                              <div className="w-full h-10 rounded shadow-inner overflow-hidden border border-black/20 bg-black/40 flex items-center justify-center">
+                                <img 
+                                  src={e.customUrl} 
+                                  alt={e.name} 
+                                  className="w-auto h-full object-contain" 
+                                  referrerPolicy="no-referrer"
+                                  loading="lazy"
+                                />
+                              </div>
+                              <span className="text-[10px] font-bold uppercase tracking-tighter text-slate-400 truncate w-full text-center">{e.name}</span>
+                            </button>
+                            <button 
+                              onClick={(e_stop) => {
+                                e_stop.stopPropagation();
+                                deleteSavedEye(e.id);
+                              }}
+                              className="absolute -top-1 -right-1 w-5 h-5 bg-red-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-700 shadow-lg"
+                            >
+                              <Trash2 className="w-3 h-3 text-white" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      {savedEyes.length === 0 && (
+                        <div className="py-8 flex flex-col items-center justify-center gap-3 border-2 border-dashed border-white/5 rounded-2xl bg-white/[0.02]">
+                          <EyeIcon className="w-6 h-6 text-slate-700" />
+                          <p className="text-[9px] text-slate-600 font-medium px-6 text-center italic">Use transparent PNG or SVG for best results.</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </motion.div>
               )}
 
@@ -1143,20 +1423,24 @@ export default function App() {
                     />
 
                     <div className="flex gap-2 pt-2">
-                      <button 
-                        onClick={() => setFlipX(!flipX)}
-                        className={`flex-1 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all border flex items-center justify-center gap-1.5 ${flipX ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'}`}
-                      >
-                        <FlipHorizontal className="w-3 h-3" />
-                        <span>Flip X</span>
-                      </button>
-                      <button 
-                        onClick={() => setFlipY(!flipY)}
-                        className={`flex-1 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all border flex items-center justify-center gap-1.5 ${flipY ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'}`}
-                      >
-                        <FlipVertical className="w-3 h-3" />
-                        <span>Flip Y</span>
-                      </button>
+                      <Tooltip content="Mirror horizontally" position="top">
+                        <button 
+                          onClick={() => setFlipX(!flipX)}
+                          className={`flex-1 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all border flex items-center justify-center gap-1.5 ${flipX ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'}`}
+                        >
+                          <FlipHorizontal className="w-3 h-3" />
+                          <span>Flip X</span>
+                        </button>
+                      </Tooltip>
+                      <Tooltip content="Mirror vertically" position="top">
+                        <button 
+                          onClick={() => setFlipY(!flipY)}
+                          className={`flex-1 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all border flex items-center justify-center gap-1.5 ${flipY ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'}`}
+                        >
+                          <FlipVertical className="w-3 h-3" />
+                          <span>Flip Y</span>
+                        </button>
+                      </Tooltip>
                     </div>
                   </div>
 
@@ -1301,7 +1585,11 @@ export default function App() {
           <span className="hidden sm:inline">Render: SVG-TO-PNG</span>
         </div>
         <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1.5"><Info className="w-3 h-3" /> Creative Mode</span>
+          <Tooltip content="Creative mode enabled" position="left">
+            <span className="flex items-center gap-1.5 cursor-help">
+              <Info className="w-3 h-3" /> Creative Mode
+            </span>
+          </Tooltip>
         </div>
       </footer>
 
@@ -1320,27 +1608,42 @@ export default function App() {
           background: rgba(255,255,255,0.1);
         }
       `}</style>
+
+      <Tutorial />
+
+      {editingEyeSource && (
+        <EyeEditor 
+          src={editingEyeSource}
+          onSave={(dataUrl) => {
+            handleCustomEyeImport(dataUrl);
+            setEditingEyeSource(null);
+          }}
+          onCancel={() => setEditingEyeSource(null)}
+        />
+      )}
     </div>
   );
 }
 
-function SidebarButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+function SidebarButton({ active, onClick, icon, label, tooltip }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string; tooltip?: string }) {
   return (
-    <button 
-      onClick={onClick}
-      className={`flex flex-col items-center gap-1.5 transition-all text-[10px] uppercase font-bold tracking-tighter ${
-        active ? 'text-amber-500' : 'text-slate-500 hover:text-slate-300'
-      }`}
-    >
-      <div className={`w-11 h-11 rounded-xl flex items-center justify-center border transition-all ${
-        active 
-          ? 'bg-amber-500/10 border-amber-500/30' 
-          : 'bg-white/5 border-white/5 hove:border-white/10'
-      }`}>
-        {icon}
-      </div>
-      <span>{label}</span>
-    </button>
+    <Tooltip content={tooltip || label} position="right">
+      <button 
+        onClick={onClick}
+        className={`flex flex-col items-center gap-1.5 transition-all text-[10px] uppercase font-bold tracking-tighter ${
+          active ? 'text-amber-500' : 'text-slate-500 hover:text-slate-300'
+        }`}
+      >
+        <div className={`w-11 h-11 rounded-xl flex items-center justify-center border transition-all ${
+          active 
+            ? 'bg-amber-500/10 border-amber-500/30' 
+            : 'bg-white/5 border-white/5 hover:border-white/10'
+        }`}>
+          {icon}
+        </div>
+        <span className="text-[8px] tracking-widest">{label}</span>
+      </button>
+    </Tooltip>
   );
 }
 

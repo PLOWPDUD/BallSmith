@@ -184,7 +184,7 @@ export function Countryball({
                   href={internalFlagUrl} 
                   x="0" y="0" 
                   width="100" height="100" 
-                  preserveAspectRatio="none"
+                  preserveAspectRatio={isSingapore ? "xMinYMid slice" : "none"}
                   className={isPoland ? "rotate-180 origin-center" : ""} 
                   referrerPolicy="no-referrer"
                   crossOrigin="anonymous"
@@ -215,7 +215,18 @@ export function Countryball({
 
             {/* 4. Expressions (Eyes) */}
             <g transform={`translate(${eyesOffset.x}, ${eyesOffset.y}) scale(${eyesOffset.scale}) rotate(${eyesOffset.rotation})`} style={{ transformOrigin: '50px 50px' }}>
-              {eyes.render('black')}
+              {eyes.customUrl ? (
+                <image 
+                  href={eyes.customUrl} 
+                  x="0" y="30" 
+                  width="100" height="40" 
+                  preserveAspectRatio="xMidYMid meet"
+                  referrerPolicy="no-referrer"
+                  crossOrigin="anonymous"
+                />
+              ) : (
+                eyes.render('black')
+              )}
             </g>
 
             {/* 5. Accessories */}
