@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import 'flag-icons/css/flag-icons.min.css';
 import { 
@@ -25,7 +25,9 @@ import {
   AlertCircle,
   Loader2,
   Bookmark,
-  Trash2
+  Trash2,
+  Undo,
+  Redo
 } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import confetti from 'canvas-confetti';
@@ -47,8 +49,10 @@ export default function App() {
   const [country, setCountry] = useState(COUNTRIES[0]);
   const [eyes, setEyes] = useState(EYES[0]);
   const [accessory, setAccessory] = useState(ACCESSORIES[0]);
+  const [accessory2, setAccessory2] = useState(ACCESSORIES[0]);
   const [eyesOffset, setEyesOffset] = useState<Offset>({ x: 0, y: 5, scale: 1, rotation: 0 });
   const [hatOffset, setHatOffset] = useState<Offset>({ x: 0, y: 0, scale: 1, rotation: 0 });
+  const [hat2Offset, setHat2Offset] = useState<Offset>({ x: 0, y: 0, scale: 1, rotation: 0 });
   const [ballRotation, setBallRotation] = useState(0);
   const [ballRotationX, setBallRotationX] = useState(0);
   const [ballRotationY, setBallRotationY] = useState(0);
@@ -70,6 +74,121 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const ballRef = useRef<HTMLDivElement>(null);
+
+  // History Management
+  const [history, setHistory] = useState<any[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const isInternalUpdate = useRef(false);
+
+  const getCurrentState = () => ({
+    country,
+    eyes,
+    accessory,
+    accessory2,
+    eyesOffset,
+    hatOffset,
+    hat2Offset,
+    ballRotation,
+    ballRotationX,
+    ballRotationY,
+    flipX,
+    flipY,
+    ballColor,
+    useFlag,
+    shape
+  });
+
+  const applyState = (s: any) => {
+    setCountry(s.country);
+    setEyes(s.eyes);
+    setAccessory(s.accessory);
+    setAccessory2(s.accessory2);
+    setEyesOffset(s.eyesOffset);
+    setHatOffset(s.hatOffset);
+    setHat2Offset(s.hat2Offset);
+    setBallRotation(s.ballRotation);
+    setBallRotationX(s.ballRotationX);
+    setBallRotationY(s.ballRotationY);
+    setFlipX(s.flipX);
+    setFlipY(s.flipY);
+    setBallColor(s.ballColor);
+    setUseFlag(s.useFlag);
+    setShape(s.shape);
+  };
+
+  // Capture current state to history (debounced)
+  React.useEffect(() => {
+    if (isInternalUpdate.current) {
+      isInternalUpdate.current = false;
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      const currentState = getCurrentState();
+      
+      // Only push if it's different from the head of the history
+      if (historyIndex === -1 || JSON.stringify(history[historyIndex]) !== JSON.stringify(currentState)) {
+        const newHistory = history.slice(0, historyIndex + 1);
+        newHistory.push(currentState);
+        
+        // Limit history size to 50
+        if (newHistory.length > 50) newHistory.shift();
+        
+        setHistory(newHistory);
+        setHistoryIndex(newHistory.length - 1);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [
+    country, eyes, accessory, accessory2, eyesOffset, 
+    hatOffset, hat2Offset, ballRotation, ballRotationX, 
+    ballRotationY, flipX, flipY, ballColor, useFlag, shape
+  ]);
+
+  const undo = useCallback(() => {
+    if (historyIndex > 0) {
+      isInternalUpdate.current = true;
+      const prevState = history[historyIndex - 1];
+      applyState(prevState);
+      setHistoryIndex(historyIndex - 1);
+    }
+  }, [historyIndex, history]);
+
+  const redo = useCallback(() => {
+    if (historyIndex < history.length - 1) {
+      isInternalUpdate.current = true;
+      const nextState = history[historyIndex + 1];
+      applyState(nextState);
+      setHistoryIndex(historyIndex + 1);
+    }
+  }, [historyIndex, history]);
+
+  // Keyboard Shortcuts
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if inside an input/textarea
+      if (document.activeElement instanceof HTMLInputElement || 
+          document.activeElement instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault();
+        redo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo]);
 
   // Load saved flags from local storage
   React.useEffect(() => {
@@ -201,9 +320,11 @@ export default function App() {
     setCountry(randomCountry);
     setEyes(randomEyes);
     setAccessory(randomAccessory);
+    setAccessory2(ACCESSORIES[0]);
     setShape(randomShape);
     setEyesOffset({ x: 0, y: 5, scale: 1, rotation: 0 });
     setHatOffset({ x: 0, y: 0, scale: 1, rotation: 0 });
+    setHat2Offset({ x: 0, y: 0, scale: 1, rotation: 0 });
     setBallRotation(0);
     setBallRotationX(0);
     setBallRotationY(0);
@@ -281,13 +402,33 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1 bg-white/5 p-1 rounded-lg border border-white/10 mr-2">
+            <button 
+              onClick={undo}
+              disabled={historyIndex <= 0}
+              className="p-1.5 rounded hover:bg-white/10 text-slate-400 disabled:opacity-30 disabled:hover:bg-transparent transition-all active:scale-90"
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={redo}
+              disabled={historyIndex >= history.length - 1}
+              className="p-1.5 rounded hover:bg-white/10 text-slate-400 disabled:opacity-30 disabled:hover:bg-transparent transition-all active:scale-90"
+              title="Redo (Ctrl+Y)"
+            >
+              <Redo className="w-4 h-4" />
+            </button>
+          </div>
           <button 
             onClick={() => {
               setCountry(COUNTRIES[0]);
               setEyes(EYES[0]);
               setAccessory(ACCESSORIES[0]);
+              setAccessory2(ACCESSORIES[0]);
               setEyesOffset({ x: 0, y: 5, scale: 1, rotation: 0 });
               setHatOffset({ x: 0, y: 0, scale: 1, rotation: 0 });
+              setHat2Offset({ x: 0, y: 0, scale: 1, rotation: 0 });
               setBallRotation(0);
               setBallRotationX(0);
               setBallRotationY(0);
@@ -374,10 +515,12 @@ export default function App() {
               flagUrlOverride={(country as any).url}
               eyes={eyes} 
               accessory={accessory} 
+              accessory2={accessory2}
               shape={shape}
               size={360}
               eyesOffset={eyesOffset}
               hatOffset={hatOffset}
+              hat2Offset={hat2Offset}
               rotation={ballRotation}
               rotationX={ballRotationX}
               rotationY={ballRotationY}
@@ -723,27 +866,57 @@ export default function App() {
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
-                  className="grid grid-cols-2 gap-3"
+                  className="space-y-6"
                 >
-                  {ACCESSORIES.map((a) => (
-                    <button
-                      key={a.id}
-                      onClick={() => setAccessory(a)}
-                      className={`aspect-square rounded-lg flex flex-col items-center justify-center gap-3 transition-all p-4 border-2 ${
-                        accessory.id === a.id 
-                          ? 'border-amber-500 bg-white/10' 
-                          : 'border-transparent bg-white/5 hover:bg-white/10'
-                      }`}
-                    >
-                      <svg viewBox="0 20 100 60" className="w-12 h-auto">
-                        <g transform="scale(0.8) translate(12, 0)">
-                           <circle cx="50" cy="80" r="45" fill="none" stroke="white" strokeWidth="1" strokeDasharray="3" opacity="0.3" />
-                           {a.render()}
-                        </g>
-                      </svg>
-                      <span className="text-[10px] font-bold uppercase tracking-tighter text-slate-400">{a.name}</span>
-                    </button>
-                  ))}
+                  <div className="space-y-3">
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 px-1">Accessory 1</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      {ACCESSORIES.map((a) => (
+                        <button
+                          key={a.id}
+                          onClick={() => setAccessory(a)}
+                          className={`aspect-square rounded-lg flex flex-col items-center justify-center gap-3 transition-all p-4 border-2 ${
+                            accessory.id === a.id 
+                              ? 'border-amber-500 bg-white/10' 
+                              : 'border-transparent bg-white/5 hover:bg-white/10'
+                          }`}
+                        >
+                          <svg viewBox="0 20 100 60" className="w-12 h-auto">
+                            <g transform="scale(0.8) translate(12, 0)">
+                               <circle cx="50" cy="80" r="45" fill="none" stroke="white" strokeWidth="1" strokeDasharray="3" opacity="0.3" />
+                               {a.render()}
+                            </g>
+                          </svg>
+                          <span className="text-[10px] font-bold uppercase tracking-tighter text-slate-400">{a.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 pt-6 border-t border-white/5">
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 px-1">Accessory 2</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      {ACCESSORIES.map((a) => (
+                        <button
+                          key={a.id}
+                          onClick={() => setAccessory2(a)}
+                          className={`aspect-square rounded-lg flex flex-col items-center justify-center gap-3 transition-all p-4 border-2 ${
+                            accessory2.id === a.id 
+                              ? 'border-amber-500 bg-white/10' 
+                              : 'border-transparent bg-white/5 hover:bg-white/10'
+                          }`}
+                        >
+                          <svg viewBox="0 20 100 60" className="w-12 h-auto">
+                            <g transform="scale(0.8) translate(12, 0)">
+                               <circle cx="50" cy="80" r="45" fill="none" stroke="white" strokeWidth="1" strokeDasharray="3" opacity="0.3" />
+                               {a.render()}
+                            </g>
+                          </svg>
+                          <span className="text-[10px] font-bold uppercase tracking-tighter text-slate-400">{a.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </motion.div>
               )}
 
@@ -872,7 +1045,7 @@ export default function App() {
                   <div className="space-y-4 pt-6 border-t border-white/5">
                     <div className="flex items-center gap-2 mb-2">
                        <PlusCircle className="w-3 h-3 text-amber-500" />
-                       <h3 className="text-[10px] font-black uppercase tracking-widest text-white">Hat Position</h3>
+                       <h3 className="text-[10px] font-black uppercase tracking-widest text-white">Hat 1 Position</h3>
                     </div>
                     
                     <AdjustmentSlider 
@@ -905,6 +1078,46 @@ export default function App() {
                       onChange={(v) => setHatOffset(prev => ({ ...prev, rotation: v }))} 
                     />
                   </div>
+
+                  {/* Hat 2 Adjustments */}
+                  {accessory2.id !== 'none' && (
+                    <div className="space-y-4 pt-6 border-t border-white/5">
+                      <div className="flex items-center gap-2 mb-2">
+                         <PlusCircle className="w-3 h-3 text-amber-500" />
+                         <h3 className="text-[10px] font-black uppercase tracking-widest text-white">Hat 2 Position</h3>
+                      </div>
+                      
+                      <AdjustmentSlider 
+                        label="Horizontal" 
+                        value={hat2Offset.x} 
+                        min={-40} 
+                        max={40} 
+                        onChange={(v) => setHat2Offset(prev => ({ ...prev, x: v }))} 
+                      />
+                      <AdjustmentSlider 
+                        label="Vertical" 
+                        value={hat2Offset.y} 
+                        min={-40} 
+                        max={40} 
+                        onChange={(v) => setHat2Offset(prev => ({ ...prev, y: v }))} 
+                      />
+                      <AdjustmentSlider 
+                        label="Scale" 
+                        value={hat2Offset.scale} 
+                        min={0.5} 
+                        max={2} 
+                        step={0.1}
+                        onChange={(v) => setHat2Offset(prev => ({ ...prev, scale: v }))} 
+                      />
+                      <AdjustmentSlider 
+                        label="Rotation" 
+                        value={hat2Offset.rotation} 
+                        min={-180} 
+                        max={180} 
+                        onChange={(v) => setHat2Offset(prev => ({ ...prev, rotation: v }))} 
+                      />
+                    </div>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>

@@ -11,11 +11,13 @@ interface CountryballProps {
   flagUrlOverride?: string;
   eyes: EyeSet;
   accessory: Accessory;
+  accessory2: Accessory;
   shape?: Shape;
   size?: number;
   innerRef?: React.RefObject<HTMLDivElement | null>;
   eyesOffset: { x: number; y: number; scale: number; rotation: number };
   hatOffset: { x: number; y: number; scale: number; rotation: number };
+  hat2Offset: { x: number; y: number; scale: number; rotation: number };
   rotation?: number;
   rotationX?: number;
   rotationY?: number;
@@ -30,11 +32,13 @@ export function Countryball({
   flagUrlOverride,
   eyes, 
   accessory, 
+  accessory2,
   shape = SHAPES[0],
   size = 300, 
   innerRef, 
   eyesOffset, 
   hatOffset,
+  hat2Offset,
   rotation = 0,
   rotationX = 0,
   rotationY = 0,
@@ -218,6 +222,13 @@ export function Countryball({
             {accessory && (
               <g transform={`translate(${accessory.position.x + hatOffset.x}, ${accessory.position.y + hatOffset.y}) scale(${accessory.position.scale * hatOffset.scale}) rotate(${hatOffset.rotation})`} style={{ transformOrigin: '50px 50px' }}>
                 {accessory.render()}
+              </g>
+            )}
+
+            {/* Accessory 2 */}
+            {accessory2 && accessory2.id !== 'none' && (
+              <g transform={`translate(${accessory2.position.x + hat2Offset.x}, ${accessory2.position.y + hat2Offset.y}) scale(${accessory2.position.scale * hat2Offset.scale}) rotate(${hat2Offset.rotation})`} style={{ transformOrigin: '50px 50px' }}>
+                {accessory2.render()}
               </g>
             )}
           </g>
