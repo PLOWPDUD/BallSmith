@@ -35,7 +35,7 @@ import { Countryball } from './components/Countryball';
 import { SHAPES, Shape, EYES, ACCESSORIES, COUNTRIES, HISTORICAL_COUNTRIES } from './constants/assets';
 import { moderateImage } from './services/moderationService';
 
-type Tab = 'flag' | 'eyes' | 'accessories' | 'adjust' | 'shape';
+type Tab = 'flag' | 'eyes' | 'accessories' | 'adjust' | 'shape' | 'saved';
 type FlagMode = 'modern' | 'historical' | 'custom';
 
 interface Offset {
@@ -43,6 +43,14 @@ interface Offset {
   y: number;
   scale: number;
   rotation: number;
+}
+
+interface SavedDesign {
+  id: string;
+  name: string;
+  timestamp: number;
+  state: any;
+  previewUrl?: string;
 }
 
 export default function App() {
@@ -71,6 +79,8 @@ export default function App() {
   const [isModerating, setIsModerating] = useState(false);
   const [moderationError, setModerationError] = useState<string | null>(null);
   const [savedFlags, setSavedFlags] = useState<any[]>([]);
+  const [savedDesigns, setSavedDesigns] = useState<SavedDesign[]>([]);
+  const [isSavingDesign, setIsSavingDesign] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const ballRef = useRef<HTMLDivElement>(null);
@@ -190,14 +200,23 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undo, redo]);
 
-  // Load saved flags from local storage
+  // Load saved flags and designs from local storage
   React.useEffect(() => {
-    const stored = localStorage.getItem('ballsmith_saved_flags');
-    if (stored) {
+    const storedFlags = localStorage.getItem('ballsmith_saved_flags');
+    if (storedFlags) {
       try {
-        setSavedFlags(JSON.parse(stored));
+        setSavedFlags(JSON.parse(storedFlags));
       } catch (e) {
         console.error("Failed to load saved flags", e);
+      }
+    }
+
+    const storedDesigns = localStorage.getItem('ballsmith_saved_designs');
+    if (storedDesigns) {
+      try {
+        setSavedDesigns(JSON.parse(storedDesigns));
+      } catch (e) {
+        console.error("Failed to load saved designs", e);
       }
     }
   }, []);
@@ -212,6 +231,60 @@ export default function App() {
     const updated = savedFlags.filter(f => f.code !== code);
     setSavedFlags(updated);
     localStorage.setItem('ballsmith_saved_flags', JSON.stringify(updated));
+  };
+
+  const handleSaveDesign = async () => {
+    if (!ballRef.current) return;
+    setIsSavingDesign(true);
+
+    try {
+      const previewUrl = await toPng(ballRef.current, {
+        pixelRatio: 0.5,
+        backgroundColor: 'transparent'
+      });
+
+      const newDesign: SavedDesign = {
+        id: 'design-' + Date.now(),
+        name: country.name || 'Unnamed Ball',
+        timestamp: Date.now(),
+        state: getCurrentState(),
+        previewUrl
+      };
+
+      const updated = [newDesign, ...savedDesigns].slice(0, 50);
+      setSavedDesigns(updated);
+      localStorage.setItem('ballsmith_saved_designs', JSON.stringify(updated));
+      
+      confetti({
+        particleCount: 30,
+        spread: 40,
+        origin: { y: 0.8 },
+        colors: ['#10b981']
+      });
+      
+      setActiveTab('saved');
+    } catch (err) {
+      console.error('Failed to save design:', err);
+    } finally {
+      setIsSavingDesign(false);
+    }
+  };
+
+  const handleLoadDesign = (design: SavedDesign) => {
+    isInternalUpdate.current = true;
+    applyState(design.state);
+    confetti({
+      particleCount: 40,
+      spread: 60,
+      origin: { y: 0.6 },
+      colors: ['#3b82f6']
+    });
+  };
+
+  const deleteSavedDesign = (id: string) => {
+    const updated = savedDesigns.filter(d => d.id !== id);
+    setSavedDesigns(updated);
+    localStorage.setItem('ballsmith_saved_designs', JSON.stringify(updated));
   };
 
   const handleCustomImport = async (dataUrl: string, mimeType: string = 'image/png') => {
@@ -421,6 +494,14 @@ export default function App() {
             </button>
           </div>
           <button 
+            onClick={handleSaveDesign}
+            disabled={isSavingDesign}
+            className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-600/20 border border-blue-500/30 text-blue-400 text-[10px] font-bold uppercase tracking-wider hover:bg-blue-600/30 transition-all active:scale-95 disabled:opacity-50 font-sans"
+          >
+            <Bookmark className={`w-3.5 h-3.5 ${isSavingDesign ? 'animate-pulse' : ''}`} />
+            {isSavingDesign ? 'Saving' : 'Save Design'}
+          </button>
+          <button 
             onClick={() => {
               setCountry(COUNTRIES[0]);
               setEyes(EYES[0]);
@@ -478,6 +559,12 @@ export default function App() {
             onClick={() => setActiveTab('shape')} 
             icon={<Globe className="w-5 h-5" />} 
             label="Shape" 
+          />
+          <SidebarButton 
+            active={activeTab === 'saved'} 
+            onClick={() => setActiveTab('saved')} 
+            icon={<Bookmark className="w-5 h-5" />} 
+            label="Gallery" 
           />
           <SidebarButton 
             active={activeTab === 'adjust'} 
@@ -563,7 +650,7 @@ export default function App() {
         <aside className="w-80 bg-[#16181D] border-l border-white/10 flex flex-col pt-0 shrink-0">
           <div className="p-4 border-b border-white/10 flex items-center justify-between bg-black/10">
             <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-              {activeTab === 'flag' ? 'Select Nation' : activeTab === 'eyes' ? 'Expression' : activeTab === 'shape' ? 'Select Shape' : 'Accessories'}
+              {activeTab === 'flag' ? 'Select Nation' : activeTab === 'eyes' ? 'Expression' : activeTab === 'shape' ? 'Select Shape' : activeTab === 'saved' ? 'Your Gallery' : 'Accessories'}
             </h2>
           </div>
 
@@ -588,6 +675,76 @@ export default function App() {
                       <X className="w-3 h-3" />
                     </button>
                   </div>
+                </motion.div>
+              )}
+
+              {activeTab === 'saved' && (
+                <motion.div
+                  key="saved"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className="space-y-4"
+                >
+                  <div className="p-3 bg-blue-500/5 border border-blue-500/10 rounded-xl mb-4">
+                    <div className="flex items-center gap-2 mb-2">
+                       <Sparkles className="w-3 h-3 text-amber-500" />
+                       <h3 className="text-[10px] font-black uppercase tracking-widest text-white">Your Masterpieces</h3>
+                    </div>
+                    <p className="text-[9px] text-slate-400 leading-relaxed italic">
+                      Save your current design to edit it later. These designs are stored in your browser.
+                    </p>
+                  </div>
+
+                  {savedDesigns.length > 0 ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      {savedDesigns.map((d) => (
+                        <div key={d.id} className="relative group">
+                          <button
+                            onClick={() => handleLoadDesign(d)}
+                            className="w-full aspect-square rounded-lg flex flex-col items-center justify-center gap-2 transition-all p-2 border-2 border-transparent bg-white/5 hover:bg-white/10 hover:border-blue-500/50"
+                          >
+                            <div className="w-full flex-1 rounded shadow-inner overflow-hidden flex items-center justify-center">
+                              {d.previewUrl ? (
+                                <img 
+                                  src={d.previewUrl} 
+                                  alt={d.name} 
+                                  className="w-auto h-full object-contain" 
+                                />
+                              ) : (
+                                <Globe className="w-8 h-8 text-slate-700" />
+                              )}
+                            </div>
+                            <span className="text-[8px] font-bold uppercase tracking-tighter text-slate-400 truncate w-full text-center">
+                              {d.name}
+                            </span>
+                            <span className="text-[7px] text-slate-600 font-mono">
+                              {new Date(d.timestamp).toLocaleDateString()}
+                            </span>
+                          </button>
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteSavedDesign(d.id);
+                            }}
+                            className="absolute -top-1 -right-1 w-5 h-5 bg-red-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-700 shadow-lg z-10"
+                          >
+                            <Trash2 className="w-3 h-3 text-white" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="py-20 flex flex-col items-center justify-center gap-4 border-2 border-dashed border-white/5 rounded-2xl bg-white/[0.02]">
+                      <div className="p-4 bg-white/5 rounded-full">
+                        <Bookmark className="w-8 h-8 text-slate-700" />
+                      </div>
+                      <div className="text-center px-6">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Gallery is Empty</p>
+                        <p className="text-[9px] text-slate-600 font-medium">Create a masterpiece and click "Save Design" in the header to store it here.</p>
+                      </div>
+                    </div>
+                  )}
                 </motion.div>
               )}
 
