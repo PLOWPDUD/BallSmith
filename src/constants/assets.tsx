@@ -91,25 +91,8 @@ export const EYES: EyeSet[] = [
     name: 'Sad',
     render: (c) => (
       <g>
-        {/* Concave "bar" eyes from the latest sad image */}
-        <path d="M12,42 Q30,50 48,42 L46,56 Q30,64 14,58 Z" fill="white" stroke={c} strokeWidth="3.5" strokeLinejoin="round" />
-        <path d="M88,42 Q70,50 52,42 L54,56 Q70,64 86,58 Z" fill="white" stroke={c} strokeWidth="3.5" strokeLinejoin="round" />
-      </g>
-    )
-  },
-  {
-    id: 'crying',
-    name: 'Crying',
-    render: (c) => (
-      <g>
-        {/* Sad bar eyes */}
-        <path d="M12,42 Q30,50 48,42 L46,56 Q30,64 14,58 Z" fill="white" stroke={c} strokeWidth="3.5" strokeLinejoin="round" />
-        <path d="M88,42 Q70,50 52,42 L54,56 Q70,64 86,58 Z" fill="white" stroke={c} strokeWidth="3.5" strokeLinejoin="round" />
-        {/* Tears directly under eyes */}
-        <path d="M22,65 Q30,75 38,65" fill="none" stroke="#0ea5e9" strokeWidth="6" strokeLinecap="round" />
-        <path d="M30,68 L30,85" fill="none" stroke="#0ea5e9" strokeWidth="4" strokeLinecap="round" />
-        <path d="M62,65 Q70,75 78,65" fill="none" stroke="#0ea5e9" strokeWidth="6" strokeLinecap="round" />
-        <path d="M70,68 L70,85" fill="none" stroke="#0ea5e9" strokeWidth="4" strokeLinecap="round" />
+        <path d="M10,58 Q28,45 46,40 L46,55 Q28,60 10,73 Z" fill="white" stroke={c} strokeWidth="3.5" strokeLinejoin="round" />
+        <path d="M90,58 Q72,45 54,40 L54,55 Q72,60 90,73 Z" fill="white" stroke={c} strokeWidth="3.5" strokeLinejoin="round" />
       </g>
     )
   },
